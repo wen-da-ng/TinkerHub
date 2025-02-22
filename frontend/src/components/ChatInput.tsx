@@ -1,5 +1,5 @@
 // frontend/src/components/ChatInput.tsx
-import { useState, useRef, useEffect, KeyboardEvent, DragEvent } from 'react'
+import { useState, useRef, useEffect, KeyboardEvent, DragEvent, useCallback } from 'react'
 import { FiUpload } from 'react-icons/fi'
 import { ICONS, MESSAGES } from './config'
 import { FileInfo } from './types'
@@ -42,28 +42,49 @@ export const ChatInput = ({
     }
   }
 
-  const handleFileUpload = async (uploadedFiles: FileList) => {
+  const handleFileUpload = useCallback(async (uploadedFiles: FileList) => {
     const newFiles: FileInfo[] = []
     
     for (const file of uploadedFiles) {
-      const extension = '.' + file.name.split('.').pop()?.toLowerCase()
-      
-      if (file.type.startsWith('text/') || supportedFileTypes.extensions.includes(extension)) {
+      if (file.type.startsWith('image/')) {
         try {
-          const content = await file.text()
+          const reader = new FileReader()
+          const imageData = await new Promise<string>((resolve, reject) => {
+            reader.onload = () => resolve(reader.result as string)
+            reader.onerror = reject
+            reader.readAsDataURL(file)
+          })
+          
           newFiles.push({
             name: file.name,
-            type: file.type || 'text/plain',
-            content: content
+            type: file.type,
+            content: 'Image file uploaded for OCR processing',
+            isImage: true,
+            imageData
           })
         } catch (error) {
-          console.error(`Error reading file ${file.name}:`, error)
+          console.error(`Error reading image ${file.name}:`, error)
+        }
+      } else {
+        const extension = '.' + file.name.split('.').pop()?.toLowerCase()
+        
+        if (file.type.startsWith('text/') || supportedFileTypes.extensions.includes(extension)) {
+          try {
+            const content = await file.text()
+            newFiles.push({
+              name: file.name,
+              type: file.type || 'text/plain',
+              content: content
+            })
+          } catch (error) {
+            console.error(`Error reading file ${file.name}:`, error)
+          }
         }
       }
     }
 
     setFiles(prev => [...prev, ...newFiles])
-  }
+  }, [])
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault()
@@ -90,8 +111,15 @@ export const ChatInput = ({
           {files.map((file, index) => (
             <div 
               key={index}
-              className="flex items-center gap-2 px-3 py-1 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full"
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full"
             >
+              {file.isImage && file.imageData && (
+                <img 
+                  src={file.imageData} 
+                  alt={file.name}
+                  className="w-6 h-6 rounded object-cover"
+                />
+              )}
               <span className="text-sm truncate max-w-[200px]">{file.name}</span>
               <button
                 onClick={() => removeFile(index)}
@@ -122,7 +150,7 @@ export const ChatInput = ({
           ref={fileInputRef}
           type="file"
           multiple
-          accept={supportedFileTypes.extensions.join(',') + ',text/*'}
+          accept={`${supportedFileTypes.extensions.join(',')},text/*,image/*`}
           className="hidden"
           onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
         />

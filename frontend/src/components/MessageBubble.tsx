@@ -1,4 +1,3 @@
-// frontend/src/components/MessageBubble.tsx
 import { FC } from 'react'
 import { Message } from './types'
 import ReactMarkdown from 'react-markdown'
@@ -42,11 +41,31 @@ export const MessageBubble: FC<{ message: Message }> = ({ message }) => {
                 {message.files.map((file, index) => (
                   <div 
                     key={index}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-opacity-20 bg-gray-500 rounded-full text-sm"
-                    title={`${file.name} (${file.type})`}
+                    className="flex flex-col items-start gap-2 p-3 bg-opacity-20 bg-gray-500 rounded-lg"
                   >
-                    <FiFile className="w-4 h-4" />
-                    <span className="truncate max-w-[150px]">{file.name}</span>
+                    {file.isImage && file.imageData ? (
+                      <>
+                        <img 
+                          src={file.imageData} 
+                          alt={file.name}
+                          className="max-w-[300px] max-h-[300px] rounded-lg object-contain"
+                        />
+                        {file.caption && (
+                          <div className="text-sm text-gray-200 dark:text-gray-300 italic">
+                            "{file.caption}"
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-sm">
+                          <FiFile className="w-4 h-4" />
+                          <span className="truncate max-w-[150px]">{file.name}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <FiFile className="w-4 h-4" />
+                        <span className="truncate max-w-[150px]">{file.name}</span>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -125,6 +144,15 @@ export const MessageBubble: FC<{ message: Message }> = ({ message }) => {
                     )}
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {message.searchSummary && (
+            <div className="mt-4 border-t border-gray-200 dark:border-gray-600 pt-4">
+              <div className="font-semibold mb-2">Search Summary:</div>
+              <div className="text-sm text-gray-600 dark:text-gray-300">
+                {message.searchSummary}
               </div>
             </div>
           )}

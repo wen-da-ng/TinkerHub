@@ -12,16 +12,58 @@ from core.ollama_client import ollama_client
 from core.web_search import search_client
 from core.conversation_manager import conversation_manager
 from core.tts_service import tts_service
+from core.ocr_service import ocr_service
+from core.system_info import system_info
 from config.file_types import SUPPORTED_FILE_TYPES
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+async def get_models_handler(websocket: WebSocket):
+    try:
+        models_info = await ollama_client.get_model_details()
+        await websocket.send_json({
+            "type": "models",
+            "models": models_info
+        })
+    except Exception as e:
+        logger.error(f"Error sending models: {e}")
+        await websocket.send_json({
+            "type": "models",
+            "models": []  # Return empty list to indicate error
+        })
+
+async def get_system_info_handler(websocket: WebSocket):
+    try:
+        specs = system_info.get_system_specs()
+        await websocket.send_json({
+            "type": "system_info",
+            "specs": specs
+        })
+    except Exception as e:
+        logger.error(f"Error sending system info: {e}")
+        await websocket.send_json({
+            "type": "system_info",
+            "specs": {
+                'error': str(e)
+            }
+        })
 
 async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str):
     await manager.connect(websocket, client_id, chat_id)
     try:
         while True:
             data = await websocket.receive_json()
+            
+            # Handle system info request
+            if data.get('type') == 'get_system_info':
+                await get_system_info_handler(websocket)
+                continue
+            
+            # Handle model list request
+            if data.get('type') == 'get_models':
+                await get_models_handler(websocket)
+                continue
             
             # Handle audio playback request
             if data.get('type') == 'play_audio':
@@ -32,6 +74,24 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
                     "type": "audio_complete",
                     "message_id": message_id,
                     "success": success
+                })
+                continue
+            
+            # Validate model selection
+            model = data.get('model')
+            if not model:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "No model selected"
+                })
+                continue
+
+            # Validate model availability
+            available_models = await ollama_client.get_model_details()
+            if not any(m['name'] == model for m in available_models):
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Selected model {model} is not available"
                 })
                 continue
             
@@ -46,13 +106,26 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
             if files:
                 files_context = "You have been provided with the following files for analysis. Please read through all file contents carefully before responding:\n\n"
                 for idx, file in enumerate(files, 1):
-                    file_extension = os.path.splitext(file['name'])[1].lower()
-                    language = SUPPORTED_FILE_TYPES['language_map'].get(file_extension, 'text')
-                    
-                    files_context += f"=== FILE {idx}: {file['name']} ===\n"
-                    files_context += f"Type: {file['type']}\n"
-                    files_context += f"Content ({language}):\n"
-                    files_context += f"```{language}\n{file['content']}\n```\n\n"
+                    if file.get('isImage'):
+                        # Process image with OCR and captioning
+                        logger.info(f"Processing image file: {file['name']}")
+                        result = await ocr_service.process_image(file['imageData'])
+                        files_context += f"=== IMAGE {idx}: {file['name']} ===\n"
+                        files_context += f"Type: {file['type']}\n"
+                        files_context += f"Visual Content Description: {result['caption']}\n"
+                        files_context += f"Extracted Text:\n{result['text']}\n\n"
+                        
+                        # Update file with caption for frontend display
+                        file['caption'] = result['caption']
+                    else:
+                        # Handle text files
+                        file_extension = os.path.splitext(file['name'])[1].lower()
+                        language = SUPPORTED_FILE_TYPES['language_map'].get(file_extension, 'text')
+                        
+                        files_context += f"=== FILE {idx}: {file['name']} ===\n"
+                        files_context += f"Type: {file['type']}\n"
+                        files_context += f"Content ({language}):\n"
+                        files_context += f"```{language}\n{file['content']}\n```\n\n"
 
                 files_context += "Please ensure you've read and understood all file contents before providing your response.\n\n"
 
@@ -90,19 +163,35 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
             if message.strip():
                 prompt = message
             else:
-                prompt = "Please analyze the provided files and provide a detailed explanation of their contents."
+                if any(file.get('isImage') for file in files):
+                    prompt = "Please analyze the provided images, including any text extracted through OCR, and provide a detailed explanation of their contents and meaning."
+                else:
+                    prompt = "Please analyze the provided files and provide a detailed explanation of their contents."
 
             # Generate response using combined context
             response_text = ""
+            error_occurred = False
+            
             async for chunk in ollama_client.generate_response(
-                "deepseek-r1:14b",
+                model,
                 prompt,
                 context=context,
                 history=history,
-                system_prompt="You are a helpful assistant with expertise in analyzing files and code. When presented with files, carefully read through all content before responding. Consider the entire context of each file."
+                system_prompt="You are a helpful assistant with expertise in analyzing files, code, and images. When presented with files or images, carefully read through all content before responding. For images, analyze both the visual content and any extracted text. Consider the entire context of each file or image."
             ):
+                if chunk.startswith("Error:"):
+                    error_occurred = True
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": chunk
+                    })
+                    break
+                    
                 response_text += chunk
                 await websocket.send_json({"type": "stream", "content": chunk})
+
+            if error_occurred:
+                continue
 
             await conversation_manager.add_message(chat_id, "assistant", response_text)
             

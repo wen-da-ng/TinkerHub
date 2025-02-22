@@ -3,27 +3,48 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { Message, SearchSettings as SearchSettingsType, ChatProps, FileInfo } from './types'
+import { Message, SearchSettings as SearchSettingsType, ChatProps, FileInfo, ModelInfo } from './types'
 import { useWebSocket } from './useWebSocket'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
 import { SearchSettings } from './SearchSettings'
+import { ModelSelector } from './ModelSelector'
 import { DEFAULT_SEARCH_SETTINGS, MESSAGES } from './config'
 
 export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoading, setIsLoading] = useState(false)
     const [searchSettings, setSearchSettings] = useState<SearchSettingsType>(DEFAULT_SEARCH_SETTINGS)
+    const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
+    const [selectedModel, setSelectedModel] = useState<string>("")
+    const [error, setError] = useState<string>("")
     const messagesEndRef = useRef<HTMLDivElement>(null)
   
-    const { send, isConnected } = useWebSocket(clientId, chatId, searchSettings, (data) => {
+    const { send, isConnected, requestModels } = useWebSocket(clientId, chatId, searchSettings, (data) => {
       if (data.type === 'stream') {
         setMessages(prev => processStreamMessage(prev, data.content))
       } else if (data.type === 'complete') {
         setMessages(prev => addSearchResults(prev, data.search_results, data.search_summary))
         setIsLoading(false)
+      } else if (data.type === 'models') {
+        setAvailableModels(data.models || [])
+      } else if (data.type === 'error') {
+        setError(data.message)
+        setIsLoading(false)
       }
     })
+
+    useEffect(() => {
+      if (isConnected) {
+        requestModels()
+      }
+    }, [isConnected])
+
+    useEffect(() => {
+      if (availableModels.length > 0 && !selectedModel) {
+        setSelectedModel(availableModels[0].name)
+      }
+    }, [availableModels])
 
     const processStreamMessage = (prev: Message[], content: string) => {
         const lastMessage = prev[prev.length - 1]
@@ -54,7 +75,8 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
           { 
             ...lastMessage, 
             content: responseContent, 
-            thinkingContent: thinkContent 
+            thinkingContent: thinkContent,
+            model: selectedModel
           }
         ]
     }
@@ -69,7 +91,8 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
             role: 'assistant',
             content: responseContent,
             timestamp: new Date(),
-            thinkingContent: thinkContent
+            thinkingContent: thinkContent,
+            model: selectedModel
           }
         ]
     }
@@ -91,17 +114,24 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
     }
 
     const sendMessage = (input: string, files?: FileInfo[]) => {
+        if (!selectedModel) {
+            setError("Please wait for models to load or select a model")
+            return
+        }
+        
         const message = {
           id: uuidv4(),
           role: 'user',
           content: input,
           timestamp: new Date(),
-          files: files
+          files: files,
+          model: selectedModel
         }
         
         setMessages(prev => [...prev, message])
         setIsLoading(true)
-        send(input, files)
+        setError("")
+        send(input, files, selectedModel)
     }
 
     useEffect(() => {
@@ -121,19 +151,28 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
 
           <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
             <div className="max-w-4xl mx-auto">
-              <SearchSettings 
-                settings={searchSettings}
-                onChange={setSearchSettings}
-              />
+              <div className="flex flex-wrap items-center gap-2 mb-4">
+                <ModelSelector
+                  models={availableModels}
+                  selectedModel={selectedModel}
+                  onModelChange={setSelectedModel}
+                  disabled={!isConnected || isLoading}
+                />
+                <SearchSettings 
+                  settings={searchSettings}
+                  onChange={setSearchSettings}
+                />
+              </div>
               
               <ChatInput 
                 onSend={sendMessage}
-                disabled={!isConnected || isLoading}
+                disabled={!isConnected || isLoading || !selectedModel}
               />
 
-              <div className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              <div className="mt-2 text-xs">
                 {!isConnected && <span className="text-red-500">{MESSAGES.disconnected}</span>}
                 {isLoading && <span className="text-blue-500">{MESSAGES.generating}</span>}
+                {error && <span className="text-red-500">{error}</span>}
               </div>
             </div>
           </div>

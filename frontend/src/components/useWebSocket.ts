@@ -1,15 +1,16 @@
 // frontend/src/components/useWebSocket.ts
 import { useEffect, useRef, useState } from 'react'
-import { SearchSettings, FileInfo } from './types'
+import { SearchSettings, FileInfo, WebSocketMessage, GetModelsRequest } from './types'
 
 export const useWebSocket = (
   clientId: string,
   chatId: string,
   searchSettings: SearchSettings,
-  onMessage: (data: any) => void
+  onMessage: (data: WebSocketMessage) => void
 ) => {
   const wsRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>()
 
   useEffect(() => {
     const connect = () => {
@@ -19,6 +20,9 @@ export const useWebSocket = (
       ws.onopen = () => {
         console.log('WebSocket connected')
         setIsConnected(true)
+        // Request available models when connection is established
+        const getModelsRequest: GetModelsRequest = { type: 'get_models' }
+        ws.send(JSON.stringify(getModelsRequest))
       }
 
       ws.onmessage = (event) => {
@@ -33,7 +37,15 @@ export const useWebSocket = (
       ws.onclose = () => {
         console.log('WebSocket closed, reconnecting...')
         setIsConnected(false)
-        setTimeout(connect, 3000)
+        wsRef.current = null
+        
+        // Clear any existing reconnection timeout
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current)
+        }
+        
+        // Set up reconnection attempt
+        reconnectTimeoutRef.current = setTimeout(connect, 3000)
       }
 
       ws.onerror = (error) => {
@@ -43,7 +55,12 @@ export const useWebSocket = (
     }
 
     connect()
+    
+    // Cleanup function
     return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+      }
       if (wsRef.current) {
         wsRef.current.close()
         wsRef.current = null
@@ -51,11 +68,12 @@ export const useWebSocket = (
     }
   }, [clientId, chatId])
 
-  const send = (message: string, files?: FileInfo[]) => {
+  const send = (message: string, files?: FileInfo[], model?: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
         message,
         files,
+        model,
         ...searchSettings
       }))
     } else {
@@ -63,5 +81,16 @@ export const useWebSocket = (
     }
   }
 
-  return { send, isConnected }
+  const requestModels = () => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const getModelsRequest: GetModelsRequest = { type: 'get_models' }
+      wsRef.current.send(JSON.stringify(getModelsRequest))
+    }
+  }
+
+  return { 
+    send, 
+    isConnected,
+    requestModels 
+  }
 }
