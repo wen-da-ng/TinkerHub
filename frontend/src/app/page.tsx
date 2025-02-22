@@ -32,10 +32,17 @@ export default function Home() {
   }
 
   const deleteChat = (chatId: string) => {
-    setChats(prev => prev.filter(chat => chat.id !== chatId))
-    if (currentChat.id === chatId) {
-      setCurrentChat(chats[0])
-    }
+    setChats(prev => {
+      const updatedChats = prev.filter(chat => chat.id !== chatId)
+      if (currentChat.id === chatId && updatedChats.length > 0) {
+        setCurrentChat(updatedChats[0])
+      }
+      return updatedChats
+    })
+  }
+
+  const switchChat = (chat: ChatSession) => {
+    setCurrentChat(chat)
   }
 
   return (
@@ -62,7 +69,7 @@ export default function Home() {
                 >
                   <div
                     className="flex-1"
-                    onClick={() => setCurrentChat(chat)}
+                    onClick={() => switchChat(chat)}
                   >
                     {chat.name}
                   </div>

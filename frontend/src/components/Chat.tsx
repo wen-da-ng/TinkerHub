@@ -1,4 +1,3 @@
-// frontend/src/components/Chat.tsx
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
@@ -33,6 +32,10 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
         setIsLoading(false)
       }
     })
+
+    useEffect(() => {
+      setMessages([])
+    }, [chatId])
 
     useEffect(() => {
       if (isConnected) {

@@ -6,23 +6,33 @@ import logging
 import re
 import asyncio
 from typing import Optional, Dict
-from core.image_caption_service import image_caption_service
+from core.image_caption_service import ImageCaptionService
 
 logger = logging.getLogger(__name__)
 
 class OCRService:
+    _instance = None
+
     def __init__(self):
         self.supported_formats = {'.png', '.jpg', '.jpeg', '.bmp', '.tiff'}
-        self._init_tesseract()
+        self.tesseract_initialized = False
+
+    @classmethod
+    def get_instance(cls):
+        if cls._instance is None:
+            cls._instance = OCRService()
+        return cls._instance
 
     def _init_tesseract(self):
-        """Initialize tesseract with custom configuration if needed"""
-        try:
-            pytesseract.get_tesseract_version()
-            logger.info("Tesseract OCR initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize Tesseract OCR: {e}")
-            raise
+        """Initialize tesseract only when needed"""
+        if not self.tesseract_initialized:
+            try:
+                pytesseract.get_tesseract_version()
+                self.tesseract_initialized = True
+                logger.info("Tesseract OCR initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Tesseract OCR: {e}")
+                raise
 
     def is_base64_image(self, data: str) -> bool:
         try:
@@ -51,9 +61,16 @@ class OCRService:
                     "caption": None
                 }
 
+            # Initialize Tesseract if not already initialized
+            if not self.tesseract_initialized:
+                self._init_tesseract()
+
             # Run OCR and caption generation concurrently
             ocr_task = asyncio.create_task(self._extract_text(image_data))
-            caption_task = asyncio.create_task(image_caption_service.generate_caption(image_data))
+            
+            # Get the caption service instance and generate caption
+            caption_service = ImageCaptionService.get_instance()
+            caption_task = asyncio.create_task(caption_service.generate_caption(image_data))
 
             extracted_text, caption = await asyncio.gather(ocr_task, caption_task)
             
@@ -131,4 +148,7 @@ class OCRService:
         except Exception as e:
             return False, f"Invalid image data: {str(e)}"
 
-ocr_service = OCRService()
+    def cleanup(self):
+        """Clean up any resources if needed"""
+        self.tesseract_initialized = False
+        logger.info("OCR service cleaned up")

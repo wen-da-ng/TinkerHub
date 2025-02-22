@@ -11,8 +11,9 @@ from core.connection_manager import manager
 from core.ollama_client import ollama_client
 from core.web_search import search_client
 from core.conversation_manager import conversation_manager
-from core.tts_service import tts_service
-from core.ocr_service import ocr_service
+from core.tts_service import TTSService
+from core.ocr_service import OCRService
+from core.image_caption_service import ImageCaptionService
 from core.system_info import system_info
 from config.file_types import SUPPORTED_FILE_TYPES
 
@@ -49,6 +50,43 @@ async def get_system_info_handler(websocket: WebSocket):
             }
         })
 
+async def process_image_files(files):
+    """Process image files with lazy loading of services"""
+    files_context = ""
+    ocr_service = None
+    
+    for idx, file in enumerate(files, 1):
+        if file.get('isImage'):
+            try:
+                # Initialize OCR service only when needed
+                if ocr_service is None:
+                    ocr_service = OCRService.get_instance()
+                
+                logger.info(f"Processing image file: {file['name']}")
+                result = await ocr_service.process_image(file['imageData'])
+                
+                files_context += f"=== IMAGE {idx}: {file['name']} ===\n"
+                files_context += f"Type: {file['type']}\n"
+                files_context += f"Visual Content Description: {result['caption']}\n"
+                files_context += f"Extracted Text:\n{result['text']}\n\n"
+                
+                # Update file with caption for frontend display
+                file['caption'] = result['caption']
+            except Exception as e:
+                logger.error(f"Error processing image {file['name']}: {e}")
+                files_context += f"Error processing image {file['name']}: {str(e)}\n\n"
+        else:
+            # Handle text files
+            file_extension = os.path.splitext(file['name'])[1].lower()
+            language = SUPPORTED_FILE_TYPES['language_map'].get(file_extension, 'text')
+            
+            files_context += f"=== FILE {idx}: {file['name']} ===\n"
+            files_context += f"Type: {file['type']}\n"
+            files_context += f"Content ({language}):\n"
+            files_context += f"```{language}\n{file['content']}\n```\n\n"
+
+    return files_context
+
 async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str):
     await manager.connect(websocket, client_id, chat_id)
     try:
@@ -67,14 +105,22 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
             
             # Handle audio playback request
             if data.get('type') == 'play_audio':
-                message_id = data.get('message_id')
-                logger.info(f"Received audio playback request for message {message_id}")
-                success = await tts_service.play_audio(message_id)
-                await websocket.send_json({
-                    "type": "audio_complete",
-                    "message_id": message_id,
-                    "success": success
-                })
+                try:
+                    text = data.get('text', '')
+                    if text:
+                        tts_service = TTSService.get_instance()
+                        await tts_service.generate_and_play(text)
+                        await websocket.send_json({
+                            "type": "audio_complete",
+                            "success": True
+                        })
+                except Exception as e:
+                    logger.error(f"Audio playback error: {e}")
+                    await websocket.send_json({
+                        "type": "audio_complete",
+                        "success": False,
+                        "error": str(e)
+                    })
                 continue
             
             # Validate model selection
@@ -101,32 +147,11 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
             message = data.get('message', '')
             files = data.get('files', [])
             
-            # Create context from files
+            # Process files if present
             files_context = ""
             if files:
                 files_context = "You have been provided with the following files for analysis. Please read through all file contents carefully before responding:\n\n"
-                for idx, file in enumerate(files, 1):
-                    if file.get('isImage'):
-                        # Process image with OCR and captioning
-                        logger.info(f"Processing image file: {file['name']}")
-                        result = await ocr_service.process_image(file['imageData'])
-                        files_context += f"=== IMAGE {idx}: {file['name']} ===\n"
-                        files_context += f"Type: {file['type']}\n"
-                        files_context += f"Visual Content Description: {result['caption']}\n"
-                        files_context += f"Extracted Text:\n{result['text']}\n\n"
-                        
-                        # Update file with caption for frontend display
-                        file['caption'] = result['caption']
-                    else:
-                        # Handle text files
-                        file_extension = os.path.splitext(file['name'])[1].lower()
-                        language = SUPPORTED_FILE_TYPES['language_map'].get(file_extension, 'text')
-                        
-                        files_context += f"=== FILE {idx}: {file['name']} ===\n"
-                        files_context += f"Type: {file['type']}\n"
-                        files_context += f"Content ({language}):\n"
-                        files_context += f"```{language}\n{file['content']}\n```\n\n"
-
+                files_context += await process_image_files(files)
                 files_context += "Please ensure you've read and understood all file contents before providing your response.\n\n"
 
             # Store message and files in conversation history
@@ -194,25 +219,13 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
                 continue
 
             await conversation_manager.add_message(chat_id, "assistant", response_text)
-            
-            # Generate audio for response
-            message_id = str(uuid.uuid4())
-            audio_id = None
-            
-            try:
-                audio_id = await tts_service.generate_speech(response_text, message_id)
-                logger.info(f"Generated audio for message: {message_id}")
-            except Exception as e:
-                logger.error(f"TTS generation failed: {str(e)}")
-                logger.exception("Full TTS error stack trace:")
 
             # Send complete response with search results if any
             await websocket.send_json({
                 "type": "complete",
                 "content": response_text,
                 "search_results": search_results,
-                "search_summary": context if data.get('showSummary', False) else "",
-                "audio_id": audio_id
+                "search_summary": context if data.get('showSummary', False) else ""
             })
             
     except WebSocketDisconnect:
