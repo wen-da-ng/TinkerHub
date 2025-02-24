@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import { Message, SearchSettings as SearchSettingsType, ChatProps, FileInfo, ModelInfo } from './types'
+import { Message, SearchSettings as SearchSettingsType, ChatProps, FileInfo, ModelInfo, HubFile, Notification } from './types'
 import { useWebSocket } from './useWebSocket'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
@@ -17,37 +17,103 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
     const [availableModels, setAvailableModels] = useState<ModelInfo[]>([])
     const [selectedModel, setSelectedModel] = useState<string>("")
     const [error, setError] = useState<string>("")
+    const [notification, setNotification] = useState<Notification | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+    const firstRenderRef = useRef(true)
+    const loadingStateRef = useRef(false)
   
-    const { send, isConnected, requestModels } = useWebSocket(clientId, chatId, searchSettings, (data) => {
+    const { send, sendMessage, isConnected, requestModels } = useWebSocket(clientId, chatId, searchSettings, (data) => {
       if (data.type === 'stream') {
         setMessages(prev => processStreamMessage(prev, data.content))
       } else if (data.type === 'complete') {
         setMessages(prev => addSearchResults(prev, data.search_results, data.search_summary))
         setIsLoading(false)
+        loadingStateRef.current = false
       } else if (data.type === 'models') {
         setAvailableModels(data.models || [])
       } else if (data.type === 'error') {
         setError(data.message)
         setIsLoading(false)
+        loadingStateRef.current = false
+      } else if (data.type === 'hub_import_response') {
+        handleHubImportResponse(data)
+      } else if (data.type === 'hub_export_response') {
+        handleHubExportResponse(data)
+      } else if (data.type === 'conversation_history') {
+        if (data.messages) {
+          setMessages(data.messages.map((msg: any) => ({
+            id: uuidv4(),
+            role: msg.role,
+            content: msg.content,
+            timestamp: new Date(msg.metadata?.timestamp || new Date()),
+            thinkingContent: msg.metadata?.thinkingContent || '',
+            searchResults: msg.metadata?.searchResults || [],
+            searchSummary: msg.metadata?.searchSummary || '',
+            files: msg.metadata?.files || [],
+            model: msg.metadata?.model || selectedModel
+          })))
+        }
       }
     })
 
     useEffect(() => {
-      setMessages([])
-    }, [chatId])
-
-    useEffect(() => {
-      if (isConnected) {
+      if (isConnected && firstRenderRef.current) {
         requestModels()
+        firstRenderRef.current = false
       }
-    }, [isConnected])
+    }, [isConnected, requestModels])
 
     useEffect(() => {
       if (availableModels.length > 0 && !selectedModel) {
         setSelectedModel(availableModels[0].name)
       }
     }, [availableModels])
+
+    const showNotification = (type: 'success' | 'error' | 'info', message: string) => {
+      setNotification({ type, message })
+      setTimeout(() => setNotification(null), 3000)
+    }
+
+    const handleHubImportResponse = async (data: { success: boolean, error?: string }) => {
+      if (data.success) {
+        // Request conversation history after successful import
+        sendMessage({
+          type: 'get_conversation_history',
+          chatId
+        })
+        showNotification('success', 'Chat session imported successfully')
+      } else {
+        showNotification('error', data.error || 'Failed to import chat session')
+      }
+    }
+
+    const handleHubExportResponse = (data: { success: boolean, data?: HubFile, error?: string }) => {
+      if (data.success && data.data) {
+        const hubFile = data.data
+        const blob = new Blob([JSON.stringify(hubFile, null, 2)], { type: 'application/json' })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `chat-${new Date().toISOString()}.hub`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+        showNotification('success', 'Chat session exported successfully')
+      } else {
+        showNotification('error', data.error || 'Failed to export chat session')
+      }
+    }
+
+    useEffect(() => {
+      // Request conversation history when chat ID changes
+      if (chatId && isConnected) {
+        sendMessage({
+          type: 'get_conversation_history',
+          chatId
+        })
+      }
+    }, [chatId, isConnected])
 
     const processStreamMessage = (prev: Message[], content: string) => {
         const lastMessage = prev[prev.length - 1]
@@ -116,7 +182,7 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
         ]
     }
 
-    const sendMessage = (input: string, files?: FileInfo[]) => {
+    const handleSendMessage = (input: string, files?: FileInfo[]) => {
         if (!selectedModel) {
             setError("Please wait for models to load or select a model")
             return
@@ -133,8 +199,46 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
         
         setMessages(prev => [...prev, message])
         setIsLoading(true)
+        loadingStateRef.current = true
         setError("")
         send(input, files, selectedModel)
+    }
+
+    const saveSession = () => {
+      if (loadingStateRef.current) {
+        showNotification('error', 'Please wait for the current response to complete')
+        return
+      }
+      sendMessage({
+        type: 'hub_export',
+        chatId
+      })
+    }
+
+    const loadSession = async (file: File) => {
+      if (loadingStateRef.current) {
+        showNotification('error', 'Please wait for the current response to complete')
+        return
+      }
+      try {
+        const content = await file.text()
+        const hubFile: HubFile = JSON.parse(content)
+        
+        if (!hubFile.version || !hubFile.messages) {
+          throw new Error('Invalid .hub file format')
+        }
+
+        // Update hubFile with current chatId
+        hubFile.chatId = chatId
+
+        sendMessage({
+          type: 'hub_import',
+          hubFile,
+          chatId
+        })
+      } catch (error) {
+        showNotification('error', 'Failed to load chat session')
+      }
     }
 
     useEffect(() => {
@@ -168,7 +272,9 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
               </div>
               
               <ChatInput 
-                onSend={sendMessage}
+                onSend={handleSendMessage}
+                onSaveHub={saveSession}
+                onLoadHub={loadSession}
                 disabled={!isConnected || isLoading || !selectedModel}
               />
 
@@ -179,6 +285,18 @@ export default function Chat({ chatId, clientId, isSidebarOpen }: ChatProps) {
               </div>
             </div>
           </div>
+
+          {notification && (
+            <div className={`fixed bottom-4 right-4 px-4 py-2 rounded-lg shadow-lg ${
+              notification.type === 'success' 
+                ? 'bg-green-100 dark:bg-green-900 text-green-700 dark:text-green-300'
+                : notification.type === 'error'
+                ? 'bg-red-100 dark:bg-red-900 text-red-700 dark:text-red-300'
+                : 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
+            }`}>
+              {notification.message}
+            </div>
+          )}
         </div>
     )
 }

@@ -49,6 +49,9 @@ export interface Message {
   thinkingContent?: string;
   audioId?: string;
   model?: string;
+  metadata?: {
+    [key: string]: any;
+  };
 }
 
 export interface SearchResult {
@@ -67,6 +70,7 @@ export interface ChatProps {
   chatId: string;
   clientId: string;
   isSidebarOpen: boolean;
+  onImportHub?: (hubFile: HubFile) => void;
 }
 
 export interface SearchSettings {
@@ -86,7 +90,7 @@ export interface WebSocketMessage {
   audio_id?: string;
   models?: ModelInfo[];
   specs?: SystemSpecs;
-  message?: string; // For error messages
+  message?: string;
 }
 
 export interface AudioPlaybackRequest {
@@ -162,4 +166,57 @@ export interface ModelCompatibility {
 export interface ErrorResponse {
   type: 'error';
   message: string;
+}
+
+export interface HubFile {
+  version: string;
+  clientId: string;
+  chatId: string;
+  messages: Message[];
+  settings: {
+    model: string;
+    search: SearchSettings;
+  };
+  metadata: {
+    created: string;
+    lastModified: string;
+    title: string;
+    messageCount: number;
+  };
+}
+
+export interface ChatSession {
+  id: string;
+  name: string;
+  created: Date;
+  hubFile?: HubFile;
+}
+
+export interface Notification {
+  type: 'success' | 'error' | 'info';
+  message: string;
+}
+
+export interface HubImportRequest {
+  type: 'hub_import';
+  hubFile: HubFile;
+  chatId: string;
+}
+
+export interface HubExportRequest {
+  type: 'hub_export';
+  chatId: string;
+}
+
+export interface HubImportResponse {
+  type: 'hub_import_response';
+  success: boolean;
+  error?: string;
+}
+
+export interface HubExportResponse {
+  type: 'hub_export_response';
+  success: boolean;
+  data?: HubFile;
+  error?: string;
 }

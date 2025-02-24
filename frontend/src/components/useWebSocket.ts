@@ -81,6 +81,14 @@ export const useWebSocket = (
     }
   }
 
+  const sendMessage = (data: any) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data))
+    } else {
+      console.warn('WebSocket is not connected')
+    }
+  }
+
   const requestModels = () => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       const getModelsRequest: GetModelsRequest = { type: 'get_models' }
@@ -90,6 +98,7 @@ export const useWebSocket = (
 
   return { 
     send, 
+    sendMessage,
     isConnected,
     requestModels 
   }

@@ -1,21 +1,29 @@
 // frontend/src/components/ChatInput.tsx
+
 import { useState, useRef, useEffect, KeyboardEvent, DragEvent, useCallback } from 'react'
-import { FiUpload } from 'react-icons/fi'
+import { FiUpload, FiSave, FiFolder } from 'react-icons/fi'
 import { ICONS, MESSAGES } from './config'
 import { FileInfo } from './types'
 import { supportedFileTypes } from '../config/fileTypes.config'
 
+interface ChatInputProps {
+  onSend: (message: string, files?: FileInfo[]) => void;
+  onSaveHub: () => void;
+  onLoadHub: (file: File) => void;
+  disabled: boolean;
+}
+
 export const ChatInput = ({
   onSend,
+  onSaveHub,
+  onLoadHub,
   disabled
-}: {
-  onSend: (message: string, files?: FileInfo[]) => void
-  disabled: boolean
-}) => {
+}: ChatInputProps) => {
   const [input, setInput] = useState('')
   const [files, setFiles] = useState<FileInfo[]>([])
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const hubFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     const adjustHeight = () => {
@@ -46,6 +54,12 @@ export const ChatInput = ({
     const newFiles: FileInfo[] = []
     
     for (const file of uploadedFiles) {
+      // Handle .hub files separately
+      if (file.name.endsWith('.hub')) {
+        onLoadHub(file)
+        continue
+      }
+
       if (file.type.startsWith('image/')) {
         try {
           const reader = new FileReader()
@@ -84,7 +98,7 @@ export const ChatInput = ({
     }
 
     setFiles(prev => [...prev, ...newFiles])
-  }, [])
+  }, [onLoadHub])
 
   const handleDrop = (e: DragEvent) => {
     e.preventDefault()
@@ -154,26 +168,52 @@ export const ChatInput = ({
           className="hidden"
           onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
         />
-        
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
-          title="Upload files"
-        >
-          <FiUpload className="w-5 h-5" />
-        </button>
 
-        <button
-          onClick={handleSend}
-          disabled={disabled || (!input.trim() && files.length === 0)}
-          className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
-            !disabled && (input.trim() || files.length > 0)
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-          }`}
-        >
-          <ICONS.send className="w-5 h-5" />
-        </button>
+        <input
+          ref={hubFileInputRef}
+          type="file"
+          accept=".hub"
+          className="hidden"
+          onChange={(e) => e.target.files?.[0] && onLoadHub(e.target.files[0])}
+        />
+        
+        <div className="flex gap-2">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+            title="Upload files"
+          >
+            <FiUpload className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={onSaveHub}
+            className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+            title="Save chat"
+          >
+            <FiSave className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={() => hubFileInputRef.current?.click()}
+            className="flex items-center justify-center w-10 h-10 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+            title="Load chat"
+          >
+            <FiFolder className="w-5 h-5" />
+          </button>
+
+          <button
+            onClick={handleSend}
+            disabled={disabled || (!input.trim() && files.length === 0)}
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+              !disabled && (input.trim() || files.length > 0)
+                ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                : 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            <ICONS.send className="w-5 h-5" />
+          </button>
+        </div>
       </div>
     </div>
   )

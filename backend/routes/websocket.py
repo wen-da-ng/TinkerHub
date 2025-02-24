@@ -1,11 +1,11 @@
-# backend/routes/websocket.py
-
-from fastapi import WebSocket, WebSocketDisconnect
+from fastapi import WebSocket, WebSocketDisconnect, HTTPException, APIRouter
 import logging
 import asyncio
 import json
 import uuid
 import os
+import aiosqlite
+from datetime import datetime
 from pathlib import Path
 from core.connection_manager import manager
 from core.ollama_client import ollama_client
@@ -17,92 +17,156 @@ from core.image_caption_service import ImageCaptionService
 from core.system_info import system_info
 from config.file_types import SUPPORTED_FILE_TYPES
 
+router = APIRouter()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-async def get_models_handler(websocket: WebSocket):
+@router.get("/api/conversations/{chat_id}")
+async def get_conversation(chat_id: str):
     try:
-        models_info = await ollama_client.get_model_details()
-        await websocket.send_json({
-            "type": "models",
-            "models": models_info
-        })
+        await conversation_manager.wait_for_db()
+        
+        async with aiosqlite.connect("conversations.db") as db:
+            async with db.execute(
+                "SELECT role, content, metadata, timestamp FROM conversations WHERE chat_id = ? ORDER BY timestamp",
+                (chat_id,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                history = [
+                    {
+                        "role": row[0],
+                        "content": row[1],
+                        "metadata": json.loads(row[2]) if row[2] else {},
+                        "timestamp": row[3]
+                    } for row in rows
+                ]
+                return {"messages": history}
     except Exception as e:
-        logger.error(f"Error sending models: {e}")
-        await websocket.send_json({
-            "type": "models",
-            "models": []  # Return empty list to indicate error
-        })
+        logger.error(f"Error fetching conversation: {e}")
+        logger.exception("Full error stack trace:")
+        raise HTTPException(status_code=500, detail=str(e))
 
-async def get_system_info_handler(websocket: WebSocket):
+async def process_history_request(websocket: WebSocket, chat_id: str):
     try:
-        specs = system_info.get_system_specs()
-        await websocket.send_json({
-            "type": "system_info",
-            "specs": specs
-        })
+        await conversation_manager.wait_for_db()
+        
+        async with aiosqlite.connect("conversations.db") as db:
+            async with db.execute(
+                "SELECT role, content, metadata, timestamp FROM conversations WHERE chat_id = ? ORDER BY timestamp",
+                (chat_id,)
+            ) as cursor:
+                rows = await cursor.fetchall()
+                history = [
+                    {
+                        "role": row[0],
+                        "content": row[1],
+                        "metadata": json.loads(row[2]) if row[2] else {},
+                        "timestamp": row[3]
+                    } for row in rows
+                ]
+                await websocket.send_json({
+                    "type": "conversation_history",
+                    "messages": history
+                })
     except Exception as e:
-        logger.error(f"Error sending system info: {e}")
+        logger.error(f"Error sending conversation history: {e}")
+        logger.exception("Full error stack trace:")
         await websocket.send_json({
-            "type": "system_info",
-            "specs": {
-                'error': str(e)
-            }
+            "type": "error",
+            "message": f"Failed to fetch conversation history: {str(e)}"
         })
-
-async def process_image_files(files):
-    """Process image files with lazy loading of services"""
-    files_context = ""
-    ocr_service = None
-    
-    for idx, file in enumerate(files, 1):
-        if file.get('isImage'):
-            try:
-                # Initialize OCR service only when needed
-                if ocr_service is None:
-                    ocr_service = OCRService.get_instance()
-                
-                logger.info(f"Processing image file: {file['name']}")
-                result = await ocr_service.process_image(file['imageData'])
-                
-                files_context += f"=== IMAGE {idx}: {file['name']} ===\n"
-                files_context += f"Type: {file['type']}\n"
-                files_context += f"Visual Content Description: {result['caption']}\n"
-                files_context += f"Extracted Text:\n{result['text']}\n\n"
-                
-                # Update file with caption for frontend display
-                file['caption'] = result['caption']
-            except Exception as e:
-                logger.error(f"Error processing image {file['name']}: {e}")
-                files_context += f"Error processing image {file['name']}: {str(e)}\n\n"
-        else:
-            # Handle text files
-            file_extension = os.path.splitext(file['name'])[1].lower()
-            language = SUPPORTED_FILE_TYPES['language_map'].get(file_extension, 'text')
-            
-            files_context += f"=== FILE {idx}: {file['name']} ===\n"
-            files_context += f"Type: {file['type']}\n"
-            files_context += f"Content ({language}):\n"
-            files_context += f"```{language}\n{file['content']}\n```\n\n"
-
-    return files_context
 
 async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str):
     await manager.connect(websocket, client_id, chat_id)
     try:
+        # Request initial conversation history
+        await process_history_request(websocket, chat_id)
+        
         while True:
             data = await websocket.receive_json()
             
+            # Handle .hub file import/export
+            if data.get('type') == 'hub_import':
+                try:
+                    success = await conversation_manager.import_hub_file(chat_id, data.get('hubFile', {}))
+                    await websocket.send_json({
+                        "type": "hub_import_response",
+                        "success": success
+                    })
+                    if success:
+                        await process_history_request(websocket, chat_id)
+                    continue
+                except Exception as e:
+                    logger.error(f"Hub import error: {e}")
+                    logger.exception("Full error stack trace:")
+                    await websocket.send_json({
+                        "type": "hub_import_response",
+                        "success": False,
+                        "error": str(e)
+                    })
+                    continue
+
+            if data.get('type') == 'hub_export':
+                try:
+                    hub_data = await conversation_manager.export_hub_file(chat_id)
+                    if hub_data:
+                        await websocket.send_json({
+                            "type": "hub_export_response",
+                            "success": True,
+                            "data": hub_data
+                        })
+                    else:
+                        raise ValueError("Failed to export chat data")
+                    continue
+                except Exception as e:
+                    logger.error(f"Hub export error: {e}")
+                    logger.exception("Full error stack trace:")
+                    await websocket.send_json({
+                        "type": "hub_export_response",
+                        "success": False,
+                        "error": str(e)
+                    })
+                    continue
+
+            # Handle get conversation history request
+            if data.get('type') == 'get_conversation_history':
+                await process_history_request(websocket, chat_id)
+                continue
+
             # Handle system info request
             if data.get('type') == 'get_system_info':
-                await get_system_info_handler(websocket)
+                try:
+                    specs = system_info.get_system_specs()
+                    await websocket.send_json({
+                        "type": "system_info",
+                        "specs": specs
+                    })
+                except Exception as e:
+                    logger.error(f"Error getting system info: {e}")
+                    logger.exception("Full error stack trace:")
+                    await websocket.send_json({
+                        "type": "system_info",
+                        "specs": {"error": str(e)}
+                    })
                 continue
-            
+
             # Handle model list request
             if data.get('type') == 'get_models':
-                await get_models_handler(websocket)
+                try:
+                    models_info = await ollama_client.get_model_details()
+                    await websocket.send_json({
+                        "type": "models",
+                        "models": models_info
+                    })
+                except Exception as e:
+                    logger.error(f"Error getting models: {e}")
+                    logger.exception("Full error stack trace:")
+                    await websocket.send_json({
+                        "type": "models",
+                        "models": []
+                    })
                 continue
-            
+
             # Handle audio playback request
             if data.get('type') == 'play_audio':
                 try:
@@ -116,13 +180,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
                         })
                 except Exception as e:
                     logger.error(f"Audio playback error: {e}")
+                    logger.exception("Full error stack trace:")
                     await websocket.send_json({
                         "type": "audio_complete",
                         "success": False,
                         "error": str(e)
                     })
                 continue
-            
+
             # Validate model selection
             model = data.get('model')
             if not model:
@@ -132,27 +197,14 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
                 })
                 continue
 
-            # Validate model availability
-            available_models = await ollama_client.get_model_details()
-            if not any(m['name'] == model for m in available_models):
-                await websocket.send_json({
-                    "type": "error",
-                    "message": f"Selected model {model} is not available"
-                })
-                continue
-            
             # Handle normal message with possible files
-            logger.info(f"Message from {client_id}:{chat_id}")
-            
             message = data.get('message', '')
             files = data.get('files', [])
-            
-            # Process files if present
-            files_context = ""
-            if files:
-                files_context = "You have been provided with the following files for analysis. Please read through all file contents carefully before responding:\n\n"
-                files_context += await process_image_files(files)
-                files_context += "Please ensure you've read and understood all file contents before providing your response.\n\n"
+            metadata = {
+                'model': model,
+                'timestamp': datetime.now().isoformat(),
+                'files': files
+            }
 
             # Store message and files in conversation history
             user_message = message
@@ -160,10 +212,44 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
                 file_names = ", ".join(f['name'] for f in files)
                 user_message = f"{message}\n[Uploaded files: {file_names}]" if message else f"[Uploaded files: {file_names}]"
             
-            await conversation_manager.add_message(chat_id, "user", user_message)
+            await conversation_manager.add_message(chat_id, "user", user_message, metadata)
             history = await conversation_manager.get_history(chat_id)
-            
-            # Combine file context with search context if enabled
+
+            # Process files if present
+            files_context = ""
+            if files:
+                files_context = "You have been provided with the following files for analysis. Please read through all file contents carefully before responding:\n\n"
+                
+                for idx, file in enumerate(files, 1):
+                    if file.get('isImage'):
+                        try:
+                            if not hasattr(websocket_endpoint, 'ocr_service'):
+                                websocket_endpoint.ocr_service = OCRService.get_instance()
+                            
+                            result = await websocket_endpoint.ocr_service.process_image(file['imageData'])
+                            
+                            files_context += f"=== IMAGE {idx}: {file['name']} ===\n"
+                            files_context += f"Type: {file['type']}\n"
+                            files_context += f"Visual Content Description: {result['caption']}\n"
+                            files_context += f"Extracted Text:\n{result['text']}\n\n"
+                            
+                            file['caption'] = result['caption']
+                        except Exception as e:
+                            logger.error(f"Error processing image {file['name']}: {e}")
+                            logger.exception("Full error stack trace:")
+                            files_context += f"Error processing image {file['name']}: {str(e)}\n\n"
+                    else:
+                        file_extension = os.path.splitext(file['name'])[1].lower()
+                        language = SUPPORTED_FILE_TYPES['language_map'].get(file_extension, 'text')
+                        
+                        files_context += f"=== FILE {idx}: {file['name']} ===\n"
+                        files_context += f"Type: {file['type']}\n"
+                        files_context += f"Content ({language}):\n"
+                        files_context += f"```{language}\n{file['content']}\n```\n\n"
+
+                files_context += "Please ensure you've read and understood all file contents before providing your response.\n\n"
+
+            # Add search results if enabled
             context = files_context
             search_results = []
             
@@ -184,52 +270,53 @@ async def websocket_endpoint(websocket: WebSocket, client_id: str, chat_id: str)
                     for r in search_results
                 )
 
-            # Set prompt based on message content
-            if message.strip():
-                prompt = message
-            else:
-                if any(file.get('isImage') for file in files):
-                    prompt = "Please analyze the provided images, including any text extracted through OCR, and provide a detailed explanation of their contents and meaning."
-                else:
-                    prompt = "Please analyze the provided files and provide a detailed explanation of their contents."
+                metadata['search_results'] = search_results
+                metadata['search_summary'] = context if data.get('showSummary', False) else ""
 
-            # Generate response using combined context
+            # Generate response
             response_text = ""
-            error_occurred = False
-            
             async for chunk in ollama_client.generate_response(
                 model,
-                prompt,
+                message or "Please analyze the provided files.",
                 context=context,
-                history=history,
-                system_prompt="You are a helpful assistant with expertise in analyzing files, code, and images. When presented with files or images, carefully read through all content before responding. For images, analyze both the visual content and any extracted text. Consider the entire context of each file or image."
+                history=history
             ):
-                if chunk.startswith("Error:"):
-                    error_occurred = True
+                if isinstance(chunk, dict) and chunk.get('error'):
                     await websocket.send_json({
                         "type": "error",
-                        "message": chunk
+                        "message": chunk['error']
                     })
                     break
-                    
+                
                 response_text += chunk
-                await websocket.send_json({"type": "stream", "content": chunk})
+                await websocket.send_json({
+                    "type": "stream",
+                    "content": chunk
+                })
 
-            if error_occurred:
-                continue
+            # Store assistant response
+            await conversation_manager.add_message(
+                chat_id, 
+                "assistant", 
+                response_text,
+                {
+                    'model': model,
+                    'timestamp': datetime.now().isoformat(),
+                    'search_results': search_results,
+                    'search_summary': metadata.get('search_summary')
+                }
+            )
 
-            await conversation_manager.add_message(chat_id, "assistant", response_text)
-
-            # Send complete response with search results if any
+            # Send complete response
             await websocket.send_json({
                 "type": "complete",
                 "content": response_text,
                 "search_results": search_results,
-                "search_summary": context if data.get('showSummary', False) else ""
+                "search_summary": metadata.get('search_summary', '')
             })
-            
+
     except WebSocketDisconnect:
-        logger.info(f"Client {client_id} disconnected")
+        logger.info(f"Client {client_id} disconnected from chat {chat_id}")
         await manager.disconnect(client_id, chat_id)
     except Exception as e:
         logger.error(f"WebSocket error: {str(e)}")

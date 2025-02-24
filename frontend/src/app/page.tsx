@@ -5,12 +5,7 @@ import Chat from '../components/Chat'
 import { SystemInfo } from '../components/SystemInfo'
 import { v4 as uuidv4 } from 'uuid'
 import { FiPlus, FiTrash2 } from 'react-icons/fi'
-
-interface ChatSession {
-  id: string
-  name: string
-  created: Date
-}
+import { ChatSession, HubFile } from '../components/types'
 
 export default function Home() {
   const [clientId] = useState(() => uuidv4())
@@ -45,8 +40,51 @@ export default function Home() {
     setCurrentChat(chat)
   }
 
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const files = Array.from(e.dataTransfer.files)
+    const hubFile = files.find(file => file.name.endsWith('.hub'))
+
+    if (hubFile) {
+      try {
+        const content = await hubFile.text()
+        const data: HubFile = JSON.parse(content)
+        
+        // Generate a new chat ID for the imported chat
+        const importedChatId = uuidv4()
+        
+        // Create new chat with loaded data
+        const newChat: ChatSession = {
+          id: importedChatId,
+          name: data.metadata?.title || hubFile.name.replace('.hub', '') || `Imported Chat ${chats.length + 1}`,
+          created: new Date(data.metadata?.created || Date.now()),
+          hubFile: {
+            ...data,
+            chatId: importedChatId // Update the chatId in the hubFile
+          }
+        }
+
+        setChats(prev => [...prev, newChat])
+        setCurrentChat(newChat)
+      } catch (error) {
+        console.error('Error loading .hub file:', error)
+      }
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+  }
+
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div 
+      className="flex h-screen bg-gray-50 dark:bg-gray-900"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    >
       <div className={`${isSidebarOpen ? 'w-64' : 'w-0'} transition-all duration-300 ease-in-out overflow-hidden`}>
         <div className="h-full flex flex-col bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
           <div className="flex-1 p-4">
