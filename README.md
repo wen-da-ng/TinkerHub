@@ -1,4 +1,4 @@
-# TinkerHub v0.3.6: AI Conversational Platform Setup Guide for Windows
+# TinkerHub v0.3.8: AI Conversational Platform Setup Guide for Windows
 
 ## Prerequisites
 
