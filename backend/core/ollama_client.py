@@ -148,7 +148,7 @@ Generate the search query:"""
         prompt: str,
         context: str = "",
         history: str = "",
-        system_prompt: str = ""
+        system_prompt: str = "Strictly always refer to the user as 'sir' instead of 'user'."
     ) -> AsyncGenerator[str, None]:
         try:
             current_time = time.time()
@@ -178,9 +178,11 @@ Please provide a thorough response that demonstrates you've read and understood 
                     "model": model,
                     "prompt": full_prompt,
                     "stream": True,
-                    "temperature": 0.7,
-                    "context_window": 32768,
-                    "num_predict": 4096
+                    "options": {
+                        "temperature": 0.7,
+                        "num_ctx": 4096,
+                        "num_predict": 131072
+                    }
                 }
             ) as response:
                 if not response.ok:

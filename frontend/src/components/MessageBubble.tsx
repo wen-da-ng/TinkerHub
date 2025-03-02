@@ -8,14 +8,83 @@ import { BiBrain } from 'react-icons/bi'
 import { FiFile } from 'react-icons/fi'
 
 export const MessageBubble: FC<{ message: Message }> = ({ message }) => {
+  const stripMarkdown = (text: string) => {
+    if (!text) return '';
+    
+    // Process array-like text
+    if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith("['") && text.endsWith("']"))) {
+      try {
+        const matches = text.match(/['"](.+?)['"]/g);
+        if (matches) {
+          const items = matches.map(m => m.replace(/^['"]|['"]$/g, '').trim()).filter(Boolean);
+          return items.join('. ') + (items[items.length-1].endsWith('.') ? '' : '.');
+        }
+      } catch (e) {
+        console.warn('Error processing array-like text:', e);
+      }
+    }
+    
+    // Remove markdown formatting
+    return removeMarkdownFormatting(text);
+  };
+  
+  const removeMarkdownFormatting = (text: string) => {
+    // Remove code blocks with a placeholder
+    let cleaned = text.replace(/```[\s\S]*?```/g, 'Code block omitted.');
+    
+    // Remove inline code
+    cleaned = cleaned.replace(/`([^`]+)`/g, '$1');
+    
+    // Remove headers
+    cleaned = cleaned.replace(/^#{1,6}\s+(.+)$/gm, '$1');
+    
+    // Remove emphasis markers
+    cleaned = cleaned.replace(/(\*\*|__)(.*?)\1/g, '$2');
+    cleaned = cleaned.replace(/(\*|_)(.*?)\1/g, '$2');
+    
+    // Convert links to plain text
+    cleaned = cleaned.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+    
+    // Convert list items to natural speech
+    cleaned = cleaned.replace(/^\s*[\-\*\+]\s+/gm, '• ');
+    cleaned = cleaned.replace(/^\s*\d+\.\s+/gm, '. ');
+    
+    // Remove HTML tags (except for thinking tags)
+    cleaned = cleaned.replace(/<(?!think)(?!\/think)[^>]+>/g, '');
+    
+    // Remove userStyle tags
+    cleaned = cleaned.replace(/<userStyle>.*?<\/userStyle>/g, '');
+    
+    // Normalize punctuation
+    cleaned = cleaned.replace(/\.{2,}/g, '...');
+    cleaned = cleaned.replace(/\.(\s*\.)+/g, '.');
+    cleaned = cleaned.replace(/\,(\s*\.)+/g, '.');
+    
+    // Remove solitary periods on their own line
+    cleaned = cleaned.replace(/^\s*\.\s*$/gm, '');
+    
+    // Normalize whitespace
+    cleaned = cleaned.replace(/\n{3,}/g, '\n\n');
+    cleaned = cleaned.replace(/\s{2,}/g, ' ');
+    
+    // Ensure proper sentence spacing
+    cleaned = cleaned.replace(/([.!?])\s*([A-Z])/g, '$1 $2');
+    
+    return cleaned.trim();
+  };
+
   const requestAudioPlayback = async (content: string) => {
     try {
+      const cleanedContent = stripMarkdown(content);
+      console.log("Original content length:", content.length);
+      console.log("Cleaned content length:", cleanedContent.length);
+      
       const response = await fetch('http://localhost:8000/tts/play', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ text: content }),
+        body: JSON.stringify({ text: cleanedContent }),
       });
       
       if (!response.ok) {
@@ -33,7 +102,7 @@ export const MessageBubble: FC<{ message: Message }> = ({ message }) => {
         : 'bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100'
     }`}>
       <div className="flex justify-between items-start gap-2">
-        <div className="flex-1">
+        <div className="flex-1 overflow-hidden">
           {message.files && message.files.length > 0 && (
             <div className="mb-4 space-y-2">
               <div className="font-medium text-sm opacity-80">Uploaded Files:</div>
@@ -86,7 +155,7 @@ export const MessageBubble: FC<{ message: Message }> = ({ message }) => {
                   </button>
                 </div>
                 <div className="border-t border-gray-200 dark:border-gray-600 -mx-4 mb-3" />
-                <div className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
+                <div className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-words">
                   {message.thinkingContent}
                 </div>
               </div>
@@ -94,33 +163,34 @@ export const MessageBubble: FC<{ message: Message }> = ({ message }) => {
           )}
 
           {message.role === 'assistant' ? (
-            <ReactMarkdown
-              className="prose dark:prose-invert max-w-none"
-              components={{
-                code({ inline, className, children, ...props }) {
-                  const match = /language-(\w+)/.exec(className || '')
-                  return !inline && match ? (
-                    <SyntaxHighlighter
-                      style={oneDark}
-                      language={match[1]}
-                      PreTag="div"
-                      className="rounded-md"
-                      {...props}
-                    >
-                      {String(children).replace(/\n$/, '')}
-                    </SyntaxHighlighter>
-                  ) : (
-                    <code className={`${className} bg-gray-200 dark:bg-gray-800 rounded px-1`} {...props}>
-                      {children}
-                    </code>
-                  )
-                }
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
+            <div className="prose dark:prose-invert max-w-none overflow-hidden break-words">
+              <ReactMarkdown
+                components={{
+                  code({ inline, className, children, ...props }) {
+                    const match = /language-(\w+)/.exec(className || '')
+                    return !inline && match ? (
+                      <SyntaxHighlighter
+                        style={oneDark}
+                        language={match[1]}
+                        PreTag="div"
+                        className="rounded-md"
+                        {...props}
+                      >
+                        {String(children).replace(/\n$/, '')}
+                      </SyntaxHighlighter>
+                    ) : (
+                      <code className={`${className} bg-gray-200 dark:bg-gray-800 rounded px-1`} {...props}>
+                        {children}
+                      </code>
+                    )
+                  }
+                }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
           ) : (
-            <div className="whitespace-pre-wrap">{message.content}</div>
+            <div className="whitespace-pre-wrap break-words">{message.content}</div>
           )}
 
           {message.searchResults && message.searchResults.length > 0 && (

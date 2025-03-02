@@ -1,7 +1,6 @@
-// frontend/src/components/config.ts
 import { BiBrain } from 'react-icons/bi'
-import { FaSearch, FaNewspaper, FaPlay, FaImage, FaNewspaper as NewsIcon } from 'react-icons/fa'
-import { FiSend, FiSave, FiFolder } from 'react-icons/fi'
+import { FaSearch, FaNewspaper, FaPlay, FaImage, FaNewspaper as NewsIcon, FaFolder } from 'react-icons/fa'
+import { FiSend, FiSave, FiFolder, FiRefreshCw } from 'react-icons/fi'
 
 export const ICONS = {
   brain: BiBrain,
@@ -11,7 +10,9 @@ export const ICONS = {
   image: FaImage,
   send: FiSend,
   save: FiSave,
-  folder: FiFolder
+  folder: FiFolder,
+  folderOpen: FaFolder,
+  refresh: FiRefreshCw
 }
 
 export const SEARCH_TYPES = ['text', 'news', 'images', 'videos'] as const
@@ -37,7 +38,13 @@ export const MESSAGES = {
   loadingChat: 'Loading chat...',
   loadingSuccess: 'Chat loaded successfully',
   loadingError: 'Failed to load chat',
-  invalidFile: 'Invalid .hub file format'
+  invalidFile: 'Invalid .hub file format',
+  selectFolder: 'Select a folder to use as knowledge base',
+  folderNotFound: 'Selected folder not found',
+  folderLoadError: 'Error loading folder',
+  folderLoadSuccess: 'Folder loaded successfully',
+  folderRefreshing: 'Refreshing folder contents...',
+  noFilesFound: 'No supported files found in folder'
 }
 
 export const FILE_CONFIG = {
@@ -45,4 +52,39 @@ export const FILE_CONFIG = {
   extension: '.hub',
   mimeType: 'application/json',
   fileNamePrefix: 'chat-'
+}
+
+export const FOLDER_PANEL_CONFIG = {
+  maxFilePreviewLength: 1000,
+  refreshInterval: 5000,
+  width: 320,
+  headerHeight: 48,
+  footerHeight: 48,
+  fileListMaxHeight: 'calc(100vh - 180px)'
+}
+
+export const UI_CONFIG = {
+  notifications: {
+    duration: 3000,
+    position: {
+      bottom: '1rem',
+      right: '1rem'
+    }
+  },
+  animations: {
+    duration: 300,
+    easing: 'cubic-bezier(0.4, 0, 0.2, 1)'
+  },
+  colors: {
+    primary: 'blue',
+    success: 'green',
+    error: 'red',
+    warning: 'yellow',
+    info: 'blue'
+  }
+}
+
+export const WEBSOCKET_CONFIG = {
+  reconnectInterval: 3000,
+  maxReconnectAttempts: 5
 }

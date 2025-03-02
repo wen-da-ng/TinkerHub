@@ -13,13 +13,14 @@ class ConversationManager:
         self.conversations: Dict[str, List[Dict[str, str]]] = {}
         self._db_initialized = asyncio.Event()
         asyncio.create_task(self.init_db())
-
+    
     async def init_db(self):
         try:
             async with aiosqlite.connect(self.db_path) as db:
                 async with db.execute("PRAGMA table_info(conversations)") as cursor:
                     columns = await cursor.fetchall()
                     has_metadata = any(col[1] == 'metadata' for col in columns)
+                    has_folder_context = any(col[1] == 'folder_context' for col in columns)
 
                 if not columns:
                     await db.execute("""
@@ -28,11 +29,14 @@ class ConversationManager:
                             role TEXT,
                             content TEXT,
                             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            metadata TEXT
+                            metadata TEXT,
+                            folder_context TEXT
                         )
                     """)
                 elif not has_metadata:
                     await db.execute("ALTER TABLE conversations ADD COLUMN metadata TEXT")
+                elif not has_folder_context:
+                    await db.execute("ALTER TABLE conversations ADD COLUMN folder_context TEXT")
 
                 await db.commit()
                 logger.info("Database initialized successfully")
@@ -65,13 +69,35 @@ class ConversationManager:
             )
             await db.commit()
 
+    async def add_folder_context(self, chat_id: str, folder_path: str, files: List[Dict]):
+        await self.wait_for_db()
+        
+        folder_context = {
+            'folder_path': folder_path,
+            'timestamp': datetime.now().isoformat(),
+            'files': files
+        }
+        
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                "INSERT INTO conversations (chat_id, role, content, metadata, folder_context) VALUES (?, ?, ?, ?, ?)",
+                (
+                    chat_id,
+                    "system",
+                    f"Using folder as context: {folder_path}",
+                    json.dumps({'timestamp': datetime.now().isoformat()}),
+                    json.dumps(folder_context)
+                )
+            )
+            await db.commit()
+
     async def get_history(self, chat_id: str) -> str:
         await self.wait_for_db()
         
         if chat_id not in self.conversations:
             async with aiosqlite.connect(self.db_path) as db:
                 async with db.execute(
-                    "SELECT role, content, metadata FROM conversations WHERE chat_id = ? ORDER BY timestamp",
+                    "SELECT role, content, metadata, folder_context FROM conversations WHERE chat_id = ? ORDER BY timestamp",
                     (chat_id,)
                 ) as cursor:
                     rows = await cursor.fetchall()
@@ -79,7 +105,8 @@ class ConversationManager:
                         {
                             "role": row[0],
                             "content": row[1],
-                            "metadata": json.loads(row[2]) if row[2] else {}
+                            "metadata": json.loads(row[2]) if row[2] else {},
+                            "folder_context": json.loads(row[3]) if row[3] else None
                         } for row in rows
                     ]
 
@@ -95,18 +122,47 @@ class ConversationManager:
             if not hub_data.get('messages'):
                 raise ValueError("No messages found in .hub file")
 
-            # Clear existing conversations for this chat
             self.conversations[chat_id] = []
             
             async with aiosqlite.connect(self.db_path) as db:
-                # Delete existing messages
                 await db.execute("DELETE FROM conversations WHERE chat_id = ?", (chat_id,))
                 
-                # Import new messages
+                # Import folder context if present
+                if hub_data.get('folderContext'):
+                    folder_context = hub_data['folderContext']
+                    
+                    # Handle path field variations
+                    folder_path = None
+                    if isinstance(folder_context, dict):
+                        if 'path' in folder_context:
+                            folder_path = folder_context['path']
+                        elif 'folder_path' in folder_context:
+                            folder_path = folder_context['folder_path']
+                            # For consistency on export
+                            folder_context['path'] = folder_path
+                    
+                    if folder_path:
+                        await db.execute(
+                            "INSERT INTO conversations (chat_id, role, content, metadata, folder_context) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                chat_id,
+                                "system",
+                                f"Using folder as context: {folder_path}",
+                                json.dumps({'timestamp': datetime.now().isoformat()}),
+                                json.dumps(folder_context)
+                            )
+                        )
+                
+                # Import messages
                 for message in hub_data['messages']:
-                    # Extract metadata from the message
+                    if 'role' not in message or 'content' not in message:
+                        logger.warning(f"Skipping invalid message in hub file: {message}")
+                        continue
+                    
+                    timestamp = message.get('timestamp') or datetime.now().isoformat()
+                    
                     metadata = {
-                        'timestamp': message.get('timestamp'),
+                        'timestamp': timestamp,
                         'model': message.get('model'),
                         'searchResults': message.get('searchResults', []),
                         'searchSummary': message.get('searchSummary', ''),
@@ -114,7 +170,6 @@ class ConversationManager:
                         'files': message.get('files', [])
                     }
                     
-                    # Add to memory
                     message_dict = {
                         'role': message['role'],
                         'content': message['content'],
@@ -122,7 +177,6 @@ class ConversationManager:
                     }
                     self.conversations[chat_id].append(message_dict)
                     
-                    # Add to database
                     await db.execute(
                         "INSERT INTO conversations (chat_id, role, content, metadata, timestamp) VALUES (?, ?, ?, ?, ?)",
                         (
@@ -130,7 +184,7 @@ class ConversationManager:
                             message['role'],
                             message['content'],
                             json.dumps(metadata),
-                            message.get('timestamp') or datetime.now().isoformat()
+                            timestamp
                         )
                     )
                 
@@ -144,17 +198,34 @@ class ConversationManager:
             logger.exception("Full error stack trace:")
             return False
 
-    async def export_hub_file(self, chat_id: str) -> Dict:
+    async def export_hub_file(self, chat_id: str, title: str = None) -> Dict:
         try:
             await self.wait_for_db()
             
             messages = []
+            folder_context = None
+            
+            # Make sure we're using the correct chat_id parameter in the SQL queries
             async with aiosqlite.connect(self.db_path) as db:
+                # Get folder context if exists
                 async with db.execute(
-                    "SELECT role, content, metadata, timestamp FROM conversations WHERE chat_id = ? ORDER BY timestamp",
-                    (chat_id,)
+                    "SELECT folder_context FROM conversations WHERE chat_id = ? AND folder_context IS NOT NULL ORDER BY timestamp DESC LIMIT 1",
+                    (chat_id,)  # Make sure chat_id is passed correctly here
+                ) as cursor:
+                    row = await cursor.fetchone()
+                    if row and row[0]:
+                        folder_context = json.loads(row[0])
+                
+                # Get messages
+                async with db.execute(
+                    "SELECT role, content, metadata, timestamp FROM conversations WHERE chat_id = ? AND role != 'system' ORDER BY timestamp",
+                    (chat_id,)  # And here
                 ) as cursor:
                     rows = await cursor.fetchall()
+                    
+                    # Add debug logging
+                    logger.debug(f"Retrieved {len(rows)} messages for chat_id {chat_id}")
+                    
                     for row in rows:
                         metadata = json.loads(row[2]) if row[2] else {}
                         messages.append({
@@ -168,20 +239,31 @@ class ConversationManager:
                             "files": metadata.get('files', [])
                         })
 
-            return {
+            hub_data = {
                 "version": "1.0",
                 "chatId": chat_id,
                 "messages": messages,
+                "folderContext": folder_context,
                 "metadata": {
                     "created": datetime.now().isoformat(),
                     "messageCount": len(messages),
-                    "title": f"Chat Export {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                    "title": title or f"Chat Export {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 }
             }
+            
+            # Debug log the hub data
+            logger.debug(f"Export hub data: messages={len(messages)}, has_folder_context={folder_context is not None}")
+            
+            return hub_data
             
         except Exception as e:
             logger.error(f"Error exporting .hub file: {e}")
             logger.exception("Full error stack trace:")
             return None
+        
+    async def _db_connection(self):
+        """Get a database connection"""
+        await self.wait_for_db()
+        return await aiosqlite.connect(self.db_path)
 
 conversation_manager = ConversationManager()

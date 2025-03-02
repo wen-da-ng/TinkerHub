@@ -1,5 +1,3 @@
-// frontend/src/components/types.ts
-
 export interface FileInfo {
   name: string;
   type: string;
@@ -7,6 +5,14 @@ export interface FileInfo {
   isImage?: boolean;
   imageData?: string;
   caption?: string;
+  path?: string;
+  language?: string;
+}
+
+export interface FolderContext {
+  path: string;
+  files: FileInfo[];
+  timestamp: string;
 }
 
 export interface ModelInfo {
@@ -40,7 +46,7 @@ export interface SystemSpecs {
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
   files?: FileInfo[];
@@ -52,6 +58,7 @@ export interface Message {
   metadata?: {
     [key: string]: any;
   };
+  folder_context?: FolderContext;
 }
 
 export interface SearchResult {
@@ -91,6 +98,12 @@ export interface WebSocketMessage {
   models?: ModelInfo[];
   specs?: SystemSpecs;
   message?: string;
+  folder_scan_result?: {
+    success: boolean;
+    folder_path?: string;
+    files?: FileInfo[];
+    error?: string;
+  };
 }
 
 export interface AudioPlaybackRequest {
@@ -107,6 +120,7 @@ export interface AudioPlaybackResponse {
 export interface MessageRequest {
   message: string;
   files?: FileInfo[];
+  folder_files?: FileInfo[];
   model?: string;
   webSearchEnabled?: boolean;
   searchType?: string;
@@ -173,6 +187,7 @@ export interface HubFile {
   clientId: string;
   chatId: string;
   messages: Message[];
+  folderContext?: FolderContext;
   settings: {
     model: string;
     search: SearchSettings;
@@ -219,4 +234,25 @@ export interface HubExportResponse {
   success: boolean;
   data?: HubFile;
   error?: string;
+}
+
+export interface ScanFolderRequest {
+  type: 'scan_folder';
+  folder_path: string;
+}
+
+export interface ScanFolderResponse {
+  type: 'folder_scan_result';
+  success: boolean;
+  folder_path?: string;
+  files?: FileInfo[];
+  error?: string;
+}
+
+export interface FolderPanelProps {
+  onFolderChange: (files: FileInfo[]) => void;
+  sendMessage: (data: any) => void;
+  isConnected: boolean;
+  files?: FileInfo[];
+  isLoading?: boolean;
 }

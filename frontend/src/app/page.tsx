@@ -62,7 +62,7 @@ export default function Home() {
           created: new Date(data.metadata?.created || Date.now()),
           hubFile: {
             ...data,
-            chatId: importedChatId // Update the chatId in the hubFile
+            chatId: importedChatId 
           }
         }
 
