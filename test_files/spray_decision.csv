@@ -1,0 +1,21 @@
+Rain Sensor,Humidity (%),Temperature (°C),Wind Amplitude (m/s),Wind Direction (°),Action
+0,50,25,2,90,Spray
+0,60,22,1,180,Spray
+1,80,20,3,270,Do Not Spray
+0,55,27,2,45,Spray
+1,90,18,5,120,Do Not Spray
+0,40,30,3,200,Spray
+0,70,24,4,310,Do Not Spray
+0,65,26,2,150,Spray
+1,85,21,6,60,Do Not Spray
+0,50,23,2,180,Spray
+0,55,28,3,270,Spray
+1,75,19,4,330,Do Not Spray
+0,45,32,1,90,Spray
+0,60,25,3,360,Spray
+0,55,26,5,120,Do Not Spray
+1,80,22,4,210,Do Not Spray
+0,50,27,2,140,Spray
+0,65,23,2,60,Spray
+1,90,20,6,250,Do Not Spray
+0,45,29,1,300,Spray

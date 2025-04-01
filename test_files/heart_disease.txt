@@ -1,0 +1,15 @@
+Heart Rate (Pulse)
+
+Normal: 60–100 bpm at rest
+Too High (Tachycardia, >100 bpm): May indicate arrhythmia, heart failure, or stress
+Too Low (Bradycardia, <60 bpm): Could be a sign of heart block, aging, or an issue with the heart's electrical system
+Blood Pressure (BP)
+
+Normal: Around 120/80 mmHg
+High BP (Hypertension, >130/80 mmHg): Increases risk of heart disease, stroke, and artery damage
+Low BP (<90/60 mmHg): May indicate heart failure or shock, especially if accompanied by dizziness
+Blood Oxygen Level (SpO₂)
+
+Normal: 95–100%
+Low SpO₂ (<90%): Can suggest poor heart function, respiratory issues, or circulatory problems
+If you notice persistent abnormalities in these vital signs, especially with symptoms like chest pain, shortness of breath, dizziness, or fatigue, it's best to seek medical attention.
