@@ -1,4 +1,4 @@
-# TinkerHub v0.3.8: AI Conversational Platform Setup Guide for Windows
+# TinkerHub v0.4.0 
 
 ## Prerequisites
 
@@ -11,10 +11,7 @@
 - Git
 
 ### Hardware Recommendations
-- CPU: Intel Core i5/i7 or AMD Ryzen 5/7
-- RAM: 16GB (Minimum), 32GB (Recommended)
 - GPU: NVIDIA RTX 3060 or better (8GB+ VRAM)
-- Storage: 50GB free SSD space
 
 ## Installation Steps
 
@@ -58,36 +55,23 @@
    ollama --version
    ```
 
-### 5. Install Tesseract OCR
-1. Download from [Tesseract GitHub Releases](https://github.com/UB-Mannheim/tesseract/wiki)
-2. Choose the latest installer (tesseract-ocr-w64-setup-vX.X.X.exe)
-3. During installation:
-   - Select "Additional language data (download)" 
-   - Choose at least English
-   - Check "Add to PATH" option
-4. Verify in Command Prompt:
-   ```bash
-   tesseract --version
-   ```
-
-### 6. Clone Repository
+### 5. Clone Repository
 ```bash
 git clone https://github.com/wen-da-ng/TinkerHub.git
 cd TinkerHub
 ```
 
-### 7. Backend Setup
+### 6. Backend Setup
 ```bash
 # Create virtual environment
 python -m venv venv
 venv\Scripts\activate
 
+# Upgrade pip
+python -m pip install --upgrade pip setuptools
+
 # Install PyTorch with CUDA 11.8 support
 pip install torch==2.0.1+cu118 torchvision==0.15.2+cu118 torchaudio==2.0.2+cu118 --index-url https://download.pytorch.org/whl/cu118
-
-# Install TTS (will prompt for agreement to terms)
-pip install TTS
-# When prompted with "Agree to the model's terms of use (yes/no)?" type "yes" and press Enter
 
 # Install transformers (will download models on first use)
 pip install transformers
@@ -96,37 +80,30 @@ pip install transformers
 pip install -r requirements.txt
 ```
 
-### 8. Frontend Setup
+### 7. Frontend Setup
 ```bash
 cd frontend
 npm install
-npm run build
-cd ..
 ```
 
-### 9. Pull Ollama Models
+### 8. Pull Ollama Models
 ```bash
+# In a new Command Prompt window, pull models
+ollama pull [MODEL NAME]( refer : https://ollama.com/search)
+
 # Start Ollama server if not already running
 ollama serve
-
-# In a new Command Prompt window, pull models
-ollama pull deepseek-r1:14b
-# When prompted, agree to the model's terms of use
-
-ollama pull llama2:13b
-# When prompted, agree to the model's terms of use
 ```
 
-### 10. Start the Application
+### 9. Start the Application
 
-#### Option 1: Using separate Command Prompt windows
+#### Option 1: Run with Web GUI
 
 **Start Backend:**
 ```bash
 # From the project root directory
-cd backend
 venv\Scripts\activate
-python -m uvicorn app:app --reload --log-level debug
+python api_server.py
 ```
 
 **Start Frontend:**
@@ -136,44 +113,11 @@ cd frontend
 npm run dev
 ```
 
-#### Option 2: Using a batch file (create start.bat in project root)
+#### Option 2: Run with CLI
 ```batch
-@echo off
-echo Starting TinkerHub...
-echo.
-echo Starting backend server...
-start cmd /k "cd backend && venv\Scripts\activate && python -m uvicorn app:app --host 0.0.0.0 --port 8000"
-echo.
-echo Starting frontend...
-start cmd /k "cd frontend && npm run dev"
-echo.
-echo Opening application in browser...
-timeout /t 5
-start http://localhost:3000
-echo.
-echo TinkerHub started successfully!
+venv\Scripts\activate
+python app.py
 ```
-
-Run the batch file by double-clicking it or from Command Prompt:
-```bash
-start.bat
-```
-
-## First-Run Setup
-
-When you run the application for the first time:
-
-1. TinkerHub will prompt for downloading required ML models
-   - The first download may take several minutes depending on your connection
-   - BLIP-2 image model (approximately 8GB)
-   - XTTS voice model (approximately 2GB)
-
-2. Navigate to http://localhost:3000 in your browser
-   - If you used the start.bat file, it should open automatically
-
-3. Select a model from the dropdown (start with smaller models like llama2:7b for testing)
-
-4. Start chatting!
 
 ## Troubleshooting
 
@@ -200,28 +144,6 @@ When you run the application for the first time:
   ollama serve
   ```
 
-#### Backend Startup Errors
-- Clear database file if corrupted:
-  ```bash
-  del backend\conversations.db
-  ```
-- Check for conflicting processes on port 8000:
-  ```bash
-  netstat -ano | findstr :8000
-  ```
-
-#### Frontend Build Issues
-- Clear npm cache:
-  ```bash
-  npm cache clean --force
-  ```
-- Delete node_modules and reinstall:
-  ```bash
-  cd frontend
-  rmdir /s /q node_modules
-  npm install
-  ```
-
 ### RAM Management
 
 If you have 16GB RAM:
@@ -229,25 +151,10 @@ If you have 16GB RAM:
 - Close unnecessary applications
 - Reduce the maximum context size in the Ollama client settings
 
-## Performance Tips
-
-1. **Optimize for your hardware:**
-   - Use models that fit your GPU VRAM (check model size in GB)
-   - With 8GB VRAM: Use 7B models
-   - With 16GB+ VRAM: Use 13B-14B models
-
-2. **Improve inference speed:**
-   - Use "deepseek-r1:14b" for best balance of quality and speed
-   - Set lower temperature values (0.5-0.7) for faster responses
-
-3. **Folder scanning optimization:**
-   - Limit folder size to under 100 files for best performance
-   - Exclude binary files and large datasets from scanned folders
-
 ## License
 
 MIT License - See LICENSE.md for details
 
 ---
 
-**Note**: This installation guide was created on March 3, 2025. If you're using this guide significantly later, some components may have been updated. Check for newer versions and compatibility.
+**Note**: This installation guide was created on April 8, 2025. If you're using this guide significantly later, some components may have been updated. Check for newer versions and compatibility.

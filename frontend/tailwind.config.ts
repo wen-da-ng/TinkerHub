@@ -1,18 +1,19 @@
-import type { Config } from "tailwindcss";
+// tailwind.config.ts
+import type { Config } from 'tailwindcss'
 
-export default {
+const config: Config = {
   content: [
-    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    // Ensure these paths correctly point to where your components and pages live
+    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',        // If you have a pages dir
+    './src/components/**/*.{js,ts,jsx,tsx,mdx}', // Your components folder
+    './src/app/**/*.{js,ts,jsx,tsx,mdx}',          // Your app router folder
   ],
+  darkMode: 'class', // This should already be correct from the previous step
   theme: {
     extend: {
-      colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
-      },
+      // Your theme extensions (optional)
     },
   },
   plugins: [],
-} satisfies Config;
+}
+export default config
