@@ -1,145 +1,91 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
 
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --background-start-rgb: 255, 255, 255;
+  --background-end-rgb: 255, 255, 255;
 }
 
-[data-theme="dark"] {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+.dark {
+  --background: #171717;
+  --foreground: #ffffff;
+  --background-start-rgb: 23, 23, 23;
+  --background-end-rgb: 23, 23, 23;
+  color-scheme: dark;
+}
+
+.light {
+  --background: #ffffff;
+  --foreground: #171717;
+  --background-start-rgb: 255, 255, 255;
+  --background-end-rgb: 255, 255, 255;
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #171717;
+    --foreground: #ffffff;
+    --background-start-rgb: 23, 23, 23;
+    --background-end-rgb: 23, 23, 23;
   }
 }
 
 body {
-  color: var(--foreground);
   background: var(--background);
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
 }
 
-.prose {
-  max-width: none;
-}
-
-.prose pre {
-  background-color: #1a1a1a;
-  color: #e5e5e5;
-  padding: 1rem;
-  border-radius: 0.5rem;
-  margin: 1rem 0;
-}
-
-.prose code {
-  background-color: #2a2a2a;
-  color: #e5e5e5;
-  padding: 0.2rem 0.4rem;
-  border-radius: 0.25rem;
-  font-size: 0.875em;
-}
-
-.dark .prose {
-  color: #e5e5e5;
-}
-
-.dark .prose strong {
+/* Add this to ensure dark mode classes work properly */
+.dark body {
+  background-color: #171717;
   color: #ffffff;
 }
 
-.dark .prose a {
-  color: #60a5fa;
-}
-
-.dark .prose blockquote {
-  color: #9ca3af;
-  border-left-color: #374151;
-}
-
-.dark .prose h1,
-.dark .prose h2,
-.dark .prose h3,
-.dark .prose h4 {
-  color: #ffffff;
-}
-
-.dark .prose hr {
-  border-color: #374151;
-}
-
-.dark .prose pre {
-  background-color: #1a1a1a;
-}
-
-.dark .prose code {
-  background-color: #2a2a2a;
-  color: #e5e5e5;
-}
-
-/* Custom scrollbar for Webkit browsers */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 4px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: #666;
-}
-
-/* Hide scrollbar for Firefox */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #888 transparent;
-}
-
-/* Transitions */
-.transition-all {
-  transition-property: all;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
-
-/* Toast notifications */
-.toast {
-  position: fixed;
-  bottom: 1rem;
-  right: 1rem;
-  padding: 1rem;
-  border-radius: 0.5rem;
+.light body {
   background-color: #ffffff;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  z-index: 50;
+  color: #171717;
 }
 
-.dark .toast {
-  background-color: #374151;
-  color: #ffffff;
+/* Additional theme variables for components */
+:root {
+  --card-bg: #ffffff;
+  --card-border: #e5e7eb;
+  --input-bg: #ffffff;
+  --input-border: #d1d5db;
+  --sidebar-bg: #ffffff;
+  --button-bg: #3b82f6;
+  --button-text: #ffffff;
+  --message-user-bg: #3b82f6;
+  --message-user-text: #ffffff;
+  --message-ai-bg: #f3f4f6;
+  --message-ai-text: #171717;
+  --message-system-bg: #f3f4f6;
+  --message-system-text: #4b5563;
 }
 
-/* Loading animations */
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: .5;
-  }
-}
-
-.animate-pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+.dark {
+  --card-bg: #262626;
+  --card-border: #404040;
+  --input-bg: #262626;
+  --input-border: #525252;
+  --sidebar-bg: #171717;
+  --button-bg: #3b82f6;
+  --button-text: #ffffff;
+  --message-user-bg: #3b82f6;
+  --message-user-text: #ffffff;
+  --message-ai-bg: #262626;
+  --message-ai-text: #ffffff;
+  --message-system-bg: #262626;
+  --message-system-text: #d4d4d4;
 }
